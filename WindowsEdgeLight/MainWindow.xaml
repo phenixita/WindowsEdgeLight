@@ -11,13 +11,13 @@
         AllowsTransparency="True"
         Background="Transparent"
         Topmost="True"
-        ShowInTaskbar="True"
+        ShowInTaskbar="False"
         ResizeMode="NoResize"
         Loaded="Window_Loaded"
         KeyDown="Window_KeyDown">
     
     <Window.TaskbarItemInfo>
-        <TaskbarItemInfo Description="Windows Edge Light - Ctrl+Shift+L to toggle"/>
+        <TaskbarItemInfo Description="Windows Edge Light - Right-click tray icon for options"/>
     </Window.TaskbarItemInfo>
     
     <Grid x:Name="MainGrid" IsHitTestVisible="False">

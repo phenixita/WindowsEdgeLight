@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Forms;
 
 namespace WindowsEdgeLight;
 
@@ -13,6 +14,8 @@ public partial class MainWindow : Window
     private const double OpacityStep = 0.15;
     private const double MinOpacity = 0.2;
     private const double MaxOpacity = 1.0;
+    
+    private NotifyIcon? notifyIcon;
 
     // Global hotkey IDs
     private const int HOTKEY_TOGGLE = 1;
@@ -39,6 +42,47 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        SetupNotifyIcon();
+    }
+
+    private void SetupNotifyIcon()
+    {
+        notifyIcon = new NotifyIcon();
+        notifyIcon.Icon = new System.Drawing.Icon("ringlight_cropped.ico");
+        notifyIcon.Text = "Windows Edge Light - Right-click for options";
+        notifyIcon.Visible = true;
+        
+        var contextMenu = new ContextMenuStrip();
+        contextMenu.Items.Add("📋 Keyboard Shortcuts", null, (s, e) => ShowHelp());
+        contextMenu.Items.Add(new ToolStripSeparator());
+        contextMenu.Items.Add("💡 Toggle Light (Ctrl+Shift+L)", null, (s, e) => ToggleLight());
+        contextMenu.Items.Add("🔆 Brightness Up (Ctrl+Shift+↑)", null, (s, e) => IncreaseBrightness());
+        contextMenu.Items.Add("🔅 Brightness Down (Ctrl+Shift+↓)", null, (s, e) => DecreaseBrightness());
+        contextMenu.Items.Add(new ToolStripSeparator());
+        contextMenu.Items.Add("✖ Exit", null, (s, e) => System.Windows.Application.Current.Shutdown());
+        
+        notifyIcon.ContextMenuStrip = contextMenu;
+        notifyIcon.DoubleClick += (s, e) => ShowHelp();
+    }
+
+    private void ShowHelp()
+    {
+        var helpMessage = @"Windows Edge Light - Keyboard Shortcuts
+
+💡 Toggle Light:  Ctrl + Shift + L
+🔆 Brightness Up:  Ctrl + Shift + ↑
+🔅 Brightness Down:  Ctrl + Shift + ↓
+
+💡 Features:
+• Click-through overlay - won't interfere with your work
+• Global hotkeys work from any application
+• Right-click taskbar icon for menu
+
+Created by Scott Hanselman
+Version 0.3";
+
+        System.Windows.MessageBox.Show(helpMessage, "Windows Edge Light - Help", 
+            MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void SetupWindow()
@@ -122,6 +166,12 @@ public partial class MainWindow : Window
         UnregisterHotKey(hwnd, HOTKEY_TOGGLE);
         UnregisterHotKey(hwnd, HOTKEY_BRIGHTNESS_UP);
         UnregisterHotKey(hwnd, HOTKEY_BRIGHTNESS_DOWN);
+        
+        if (notifyIcon != null)
+        {
+            notifyIcon.Visible = false;
+            notifyIcon.Dispose();
+        }
         
         base.OnClosed(e);
     }
