@@ -3,8 +3,22 @@
 
 param(
     [string]$Configuration = "Release",
-    [string]$Version = "0.4"
+    [string]$Version = ""
 )
+
+# If version not provided, read from csproj
+if ([string]::IsNullOrEmpty($Version)) {
+    Write-Host "Version not specified, reading from project file..." -ForegroundColor Yellow
+    [xml]$projectFile = Get-Content "WindowsEdgeLight\WindowsEdgeLight.csproj"
+    $Version = $projectFile.Project.PropertyGroup.Version | Where-Object { $_ -ne $null } | Select-Object -First 1
+    
+    if ([string]::IsNullOrEmpty($Version)) {
+        Write-Host "ERROR: Could not read version from WindowsEdgeLight.csproj" -ForegroundColor Red
+        exit 1
+    }
+    
+    Write-Host "Using version from project file: $Version" -ForegroundColor Green
+}
 
 Write-Host "Building Windows Edge Light v$Version..." -ForegroundColor Cyan
 Write-Host ""
