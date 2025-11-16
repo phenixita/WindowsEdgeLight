@@ -1,10 +1,12 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Forms;
-using System.IO;
+using System.Windows.Shapes;
+using System.Windows.Threading;
 
 namespace WindowsEdgeLight;
 
@@ -39,6 +41,15 @@ public partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
+    private DispatcherTimer? cursorMonitorTimer;
+    private Rect? frameOuterRect;
+    private Rect? frameInnerRect;
+    private readonly Ellipse? hoverCursorRing;
+    // Added fields for hole effect
+    private Geometry? baseFrameGeometry; // original frame geometry (outer minus inner)
+    private double pathOffsetX; // offset of geometry within window
+    private double pathOffsetY;
+
     private const uint MOD_CONTROL = 0x0002;
     private const uint MOD_SHIFT = 0x0004;
     private const uint VK_L = 0x4C;
@@ -48,6 +59,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        hoverCursorRing = FindName("HoverCursorRing") as Ellipse;
         SetupNotifyIcon();
     }
 
@@ -58,7 +70,7 @@ public partial class MainWindow : Window
         // Load icon from embedded resource or file
         try
         {
-            var iconPath = Path.Combine(AppContext.BaseDirectory, "ringlight_cropped.ico");
+            var iconPath = System.IO.Path.Combine(AppContext.BaseDirectory, "ringlight_cropped.ico");
             if (File.Exists(iconPath))
             {
                 notifyIcon.Icon = new System.Drawing.Icon(iconPath);
@@ -185,6 +197,86 @@ Version {version}";
         // Listen for window size/location changes (docking/undocking)
         this.SizeChanged += Window_SizeChanged;
         this.LocationChanged += Window_LocationChanged;
+
+        StartCursorMonitoring();
+    }
+
+    private void Window_Unloaded(object sender, RoutedEventArgs e)
+    {
+        cursorMonitorTimer?.Stop();
+    }
+
+    private void StartCursorMonitoring()
+    {
+        cursorMonitorTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(75) };
+        cursorMonitorTimer.Tick += CursorMonitorTimer_Tick;
+        cursorMonitorTimer.Start();
+    }
+
+    private void CursorMonitorTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!isLightOn)
+        {
+            if (EdgeLightBorder.Visibility != Visibility.Collapsed)
+            {
+                EdgeLightBorder.Visibility = Visibility.Collapsed;
+            }
+
+            if (hoverCursorRing != null && hoverCursorRing.Visibility != Visibility.Collapsed)
+            {
+                hoverCursorRing.Visibility = Visibility.Collapsed;
+            }
+            // Restore original geometry if previously punched
+            if (baseFrameGeometry != null && EdgeLightBorder.Data != baseFrameGeometry)
+            {
+                EdgeLightBorder.Data = baseFrameGeometry;
+            }
+
+            return;
+        }
+        if (frameOuterRect == null || frameInnerRect == null || hoverCursorRing == null || baseFrameGeometry == null)
+        {
+            return;
+        }
+
+        var cursorPtScreen = System.Windows.Forms.Cursor.Position;
+        var windowPt = PointFromScreen(new System.Windows.Point(cursorPtScreen.X, cursorPtScreen.Y));
+        bool overFrame = frameOuterRect.Value.Contains(windowPt) && !frameInnerRect.Value.Contains(windowPt);
+
+        if (overFrame)
+        {
+            double ringDiameter = hoverCursorRing.Width;
+            Canvas.SetLeft(hoverCursorRing, windowPt.X - ringDiameter / 2);
+            Canvas.SetTop(hoverCursorRing, windowPt.Y - ringDiameter / 2);
+            if (hoverCursorRing.Visibility != Visibility.Visible)
+            {
+                hoverCursorRing.Visibility = Visibility.Visible;
+            }
+
+            // Punch a transparent hole under the ring by excluding a circle geometry from the frame
+            // Convert window coordinates to geometry local coordinates by subtracting stored offsets
+            var localCenter = new System.Windows.Point(windowPt.X - pathOffsetX, windowPt.Y - pathOffsetY);
+            double holeRadius = ringDiameter / 2; // match ring size
+            var hole = new EllipseGeometry(localCenter, holeRadius, holeRadius);
+            EdgeLightBorder.Data = new CombinedGeometry(GeometryCombineMode.Exclude, baseFrameGeometry, hole);
+        }
+        else
+        {
+            if (hoverCursorRing.Visibility != Visibility.Collapsed)
+            {
+                hoverCursorRing.Visibility = Visibility.Collapsed;
+            }
+
+            if (EdgeLightBorder.Visibility != Visibility.Visible)
+            {
+                EdgeLightBorder.Visibility = Visibility.Visible;
+            }
+            // Restore original geometry (remove hole)
+            if (baseFrameGeometry != null && EdgeLightBorder.Data != baseFrameGeometry)
+            {
+                EdgeLightBorder.Data = baseFrameGeometry;
+            }
+        }
     }
 
     private void CreateControlWindow()
@@ -216,8 +308,12 @@ Version {version}";
         
         // Combine: outer minus inner = frame
         var frameGeometry = new CombinedGeometry(GeometryCombineMode.Exclude, outerRect, innerRect);
-        
+        baseFrameGeometry = frameGeometry; // store original
         EdgeLightBorder.Data = frameGeometry;
+        pathOffsetX = (ActualWidth - width) / 2.0; // store offsets for local coordinate conversion
+        pathOffsetY = (ActualHeight - height) / 2.0;
+        frameOuterRect = new Rect(pathOffsetX, pathOffsetY, width, height);
+        frameInnerRect = new Rect(pathOffsetX + frameThickness, pathOffsetY + frameThickness, width - (frameThickness * 2), height - (frameThickness * 2));
     }
 
     private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -288,7 +384,20 @@ Version {version}";
     private void ToggleLight()
     {
         isLightOn = !isLightOn;
-        EdgeLightBorder.Visibility = isLightOn ? Visibility.Visible : Visibility.Collapsed;
+        if (isLightOn)
+        {
+            EdgeLightBorder.Visibility = Visibility.Visible;
+            // Restore base geometry on toggle if needed
+            if (baseFrameGeometry != null)
+            {
+                EdgeLightBorder.Data = baseFrameGeometry;
+            }
+        }
+        else
+        {
+            EdgeLightBorder.Visibility = Visibility.Collapsed;
+            hoverCursorRing?.Visibility = Visibility.Collapsed;
+        }
     }
 
     public void HandleToggle()
