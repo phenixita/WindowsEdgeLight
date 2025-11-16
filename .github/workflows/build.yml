@@ -5,11 +5,6 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version number (e.g., 0.4)'
-        required: false
-        default: ''
 
 permissions:
   contents: write
@@ -44,18 +39,10 @@ jobs:
     - name: Set version environment variables
       shell: pwsh
       run: |
-        # If workflow_dispatch input provided, prefer it; otherwise use GitVersion outputs
-        $inputVersion = '${{ github.event.inputs.version }}'
-        $isManual = '${{ github.event_name }}' -eq 'workflow_dispatch'
-        if ($isManual -and -not [string]::IsNullOrEmpty($inputVersion)) {
-          $version = $inputVersion
-        } else {
-          $version = '${{ steps.gitversion.outputs.semVer }}'
-        }
-
-        # Full semver including build metadata
+        # Use GitVersion outputs for all versioning
+        $version = '${{ steps.gitversion.outputs.semVer }}'
         $fullVersion = '${{ steps.gitversion.outputs.fullSemVer }}'
-
+        
         # Assembly version must be 4-part (x.y.z.w)
         $assemblyVersion = "${{ steps.gitversion.outputs.major }}.${{ steps.gitversion.outputs.minor }}.${{ steps.gitversion.outputs.patch }}.0"
 
@@ -97,14 +84,8 @@ jobs:
       shell: pwsh
       run: |
         New-Item -ItemType Directory -Path artifacts -Force
-        # Prefer VERSION environment variable (calculated via GitVersion or overridden), fallback to tag or manual input
+        # Use VERSION environment variable (calculated via GitVersion)
         $version = $env:VERSION
-        if (-not $version) {
-          $version = "${{ github.ref_name }}" -replace '^v', ''
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $version = "${{ github.event.inputs.version }}"
-          }
-        }
         
         # Create ZIP files with exe and README (so Updatum treats as portable app)
         New-Item -ItemType Directory -Path "temp-x64" -Force
