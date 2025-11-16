@@ -8,8 +8,8 @@ on:
     inputs:
       version:
         description: 'Version number (e.g., 0.4)'
-        required: true
-        default: '0.4'
+        required: false
+        default: ''
 
 permissions:
   contents: write
