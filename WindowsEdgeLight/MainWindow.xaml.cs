@@ -5,11 +5,18 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Forms;
 using System.IO;
+using System.Diagnostics;
 
 namespace WindowsEdgeLight;
 
 public partial class MainWindow : Window
 {
+        public int CurrentColorTemperature => currentColorTemperature;
+    // Color temperature properties
+    private int currentColorTemperature = 4000; // Kelvin
+    private const int MinColorTemp = 2700;
+    private const int MaxColorTemp = 6500;
+    private const int ColorTempStep = 200;
     private bool isLightOn = true;
     private double currentOpacity = 1.0;  // Full brightness by default
     private const double OpacityStep = 0.15;
@@ -63,12 +70,21 @@ public partial class MainWindow : Window
             {
                 notifyIcon.Icon = new System.Drawing.Icon(iconPath);
             }
-            else
-            {
-                // Try application icon from exe
-                var appIcon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath ?? System.Reflection.Assembly.GetExecutingAssembly().Location);
-                notifyIcon.Icon = appIcon ?? System.Drawing.SystemIcons.Application;
-            }
+                else
+                {
+                    // Try application icon from exe
+                    // Prefer Environment.ProcessPath; fall back to AppContext.BaseDirectory + friendly name
+                    string exePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, AppDomain.CurrentDomain.FriendlyName ?? "");
+                    if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+                    {
+                        var appIcon = System.Drawing.Icon.ExtractAssociatedIcon(exePath);
+                        notifyIcon.Icon = appIcon ?? System.Drawing.SystemIcons.Application;
+                    }
+                    else
+                    {
+                        notifyIcon.Icon = System.Drawing.SystemIcons.Application;
+                    }
+                }
         }
         catch (Exception)
         {
@@ -85,6 +101,8 @@ public partial class MainWindow : Window
         contextMenu.Items.Add("💡 Toggle Light (Ctrl+Shift+L)", null, (s, e) => ToggleLight());
         contextMenu.Items.Add("🔆 Brightness Up (Ctrl+Shift+↑)", null, (s, e) => IncreaseBrightness());
         contextMenu.Items.Add("🔅 Brightness Down (Ctrl+Shift+↓)", null, (s, e) => DecreaseBrightness());
+        contextMenu.Items.Add("❄️ Cooler", null, (s, e) => IncreaseColorTemperature());
+        contextMenu.Items.Add("🔥 Warmer", null, (s, e) => DecreaseColorTemperature());
         contextMenu.Items.Add(new ToolStripSeparator());
         contextMenu.Items.Add("✖ Exit", null, (s, e) => System.Windows.Application.Current.Shutdown());
         
@@ -185,6 +203,13 @@ Version {version}";
         // Listen for window size/location changes (docking/undocking)
         this.SizeChanged += Window_SizeChanged;
         this.LocationChanged += Window_LocationChanged;
+
+        // No persisted settings: keep default color temperature
+        currentColorTemperature = Math.Clamp(currentColorTemperature, MinColorTemp, MaxColorTemp);
+
+        // Apply the color temperature to the edge light
+        UpdateEdgeLightColor();
+        controlWindow?.UpdateColorTemperatureDisplay();
     }
 
     private void CreateControlWindow()
@@ -346,6 +371,118 @@ Version {version}";
         
         // Reposition control window to follow
         RepositionControlWindow();
+    }
+
+    /// <summary>
+    /// Increase the color temperature (more blue/cool).
+    /// </summary>
+    public void IncreaseColorTemperature()
+    {
+        currentColorTemperature = Math.Min(MaxColorTemp, currentColorTemperature + ColorTempStep);
+        UpdateEdgeLightColor();
+        controlWindow?.UpdateColorTemperatureDisplay();
+    }
+
+    /// <summary>
+    /// Decrease the color temperature (more warm/yellow).
+    /// </summary>
+    public void DecreaseColorTemperature()
+    {
+        currentColorTemperature = Math.Max(MinColorTemp, currentColorTemperature - ColorTempStep);
+        UpdateEdgeLightColor();
+        controlWindow?.UpdateColorTemperatureDisplay();
+    }
+
+    private void UpdateEdgeLightColor()
+    {
+        try
+        {
+            var color = ColorFromKelvin(currentColorTemperature);
+            // Create a few tint variations for gradient stops
+            var stop0 = LerpColors(color, Colors.White, 0.85);
+            var stop1 = LerpColors(color, Colors.White, 0.6);
+            var stop2 = LerpColors(color, Colors.White, 0.75);
+            var stop3 = LerpColors(color, Colors.White, 0.6);
+            var stop4 = LerpColors(color, Colors.White, 0.85);
+
+            if (EdgeLightBrush != null && EdgeLightBrush.GradientStops.Count >= 5)
+            {
+                EdgeLightBrush.GradientStops[0].Color = stop0;
+                EdgeLightBrush.GradientStops[1].Color = stop1;
+                EdgeLightBrush.GradientStops[2].Color = stop2;
+                EdgeLightBrush.GradientStops[3].Color = stop3;
+                EdgeLightBrush.GradientStops[4].Color = stop4;
+            }
+
+            // Update shadow color as well (slightly diluted)
+            if (EdgeLightShadow != null)
+            {
+                var shadowColor = LerpColors(color, Colors.White, 0.6);
+                EdgeLightShadow.Color = shadowColor;
+            }
+        }
+        catch
+        {
+            // ignore issues
+        }
+    }
+
+    private static System.Windows.Media.Color LerpColors(System.Windows.Media.Color a, System.Windows.Media.Color b, double t)
+    {
+        byte r = (byte)(a.R + (b.R - a.R) * t);
+        byte g = (byte)(a.G + (b.G - a.G) * t);
+        byte bl = (byte)(a.B + (b.B - a.B) * t);
+        return System.Windows.Media.Color.FromRgb(r, g, bl);
+    }
+
+    private static System.Windows.Media.Color ColorFromKelvin(int kelvin)
+    {
+        // Algorithm based on approximation of black-body radiation
+        double temp = kelvin / 100.0;
+        double r, g, b;
+
+        // Red
+        if (temp <= 66)
+        {
+            r = 255;
+        }
+        else
+        {
+            r = temp - 60;
+            r = 329.698727446 * Math.Pow(r, -0.1332047592);
+            r = Math.Clamp(r, 0, 255);
+        }
+
+        // Green
+        if (temp <= 66)
+        {
+            g = 99.4708025861 * Math.Log(temp) - 161.1195681661;
+            g = Math.Clamp(g, 0, 255);
+        }
+        else
+        {
+            g = temp - 60;
+            g = 288.1221695283 * Math.Pow(g, -0.0755148492);
+            g = Math.Clamp(g, 0, 255);
+        }
+
+        // Blue
+        if (temp >= 66)
+        {
+            b = 255;
+        }
+        else if (temp <= 19)
+        {
+            b = 0;
+        }
+        else
+        {
+            b = temp - 10;
+            b = 138.5177312231 * Math.Log(b) - 305.0447927307;
+            b = Math.Clamp(b, 0, 255);
+        }
+
+        return System.Windows.Media.Color.FromRgb((byte)r, (byte)g, (byte)b);
     }
 
     private void RepositionControlWindow()

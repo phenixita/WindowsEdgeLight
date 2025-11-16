@@ -9,14 +9,14 @@ A lightweight WPF application that adds a customizable glowing edge light effect
 - **DPI Aware**: Properly handles high-DPI displays (4K monitors with scaling)
 - **Fluent Design**: Modern UX that fits in with the Windows look and feel
 - **Click-Through Transparency**: Overlay doesn't interfere with your work - all clicks pass through to applications beneath
-- **Customizable Brightness**: Adjust opacity with easy-to-use controls
+- **Customizable Brightness & Color Temperature**: Adjust opacity with easy-to-use controls and tune the color temperature (warmer/cooler)
 - **Toggle On/Off**: Quickly enable or disable the edge light effect
 - **Always On Top**: Stays visible above all other windows
 - **Keyboard Shortcuts**: 
   - `Ctrl+Shift+L` - Toggle light on/off
   - `Ctrl+Shift+Up` - Increase brightness
   - `Ctrl+Shift+Down` - Decrease brightness
-- **Gradient Effect**: Beautiful white gradient with subtle blur for a professional look
+- **Gradient Effect**: Beautiful gradient with tunable color temperature and subtle blur for a professional look
 
 ## Screenshots
 

@@ -37,6 +37,7 @@ jobs:
           -r win-x64 `
           /p:DebugType=None `
           /p:DebugSymbols=false `
+          /p:TreatWarningsAsErrors=true `
           --self-contained
           
     - name: Build ARM64
@@ -46,6 +47,7 @@ jobs:
           -r win-arm64 `
           /p:DebugType=None `
           /p:DebugSymbols=false `
+          /p:TreatWarningsAsErrors=true `
           --self-contained
           
     - name: Prepare artifacts

@@ -13,6 +13,19 @@ public partial class ControlWindow : Window
         
         // Disable switch monitor button if only one monitor
         UpdateMonitorButtonState();
+        UpdateColorTemperatureDisplay();
+    }
+
+    public void UpdateColorTemperatureDisplay()
+    {
+        try
+        {
+            ColorTempText.Text = $"{mainWindow.CurrentColorTemperature}K";
+        }
+        catch
+        {
+            // ignore
+        }
     }
 
     private void UpdateMonitorButtonState()
@@ -43,5 +56,17 @@ public partial class ControlWindow : Window
     private void Close_Click(object sender, RoutedEventArgs e)
     {
         System.Windows.Application.Current.Shutdown();
+    }
+
+    private void Cooler_Click(object sender, RoutedEventArgs e)
+    {
+        mainWindow.IncreaseColorTemperature();
+        UpdateColorTemperatureDisplay();
+    }
+
+    private void Warmer_Click(object sender, RoutedEventArgs e)
+    {
+        mainWindow.DecreaseColorTemperature();
+        UpdateColorTemperatureDisplay();
     }
 }
