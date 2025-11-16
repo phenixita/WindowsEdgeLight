@@ -21,6 +21,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
       
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -29,6 +31,39 @@ jobs:
         
     - name: Restore dependencies
       run: dotnet restore WindowsEdgeLight/WindowsEdgeLight.csproj
+
+    - name: GitVersion
+      uses: gittools/actions/gitversion@v0.9.12
+      id: gitversion
+      with:
+        useConfigFile: false
+        preferBundledVersion: true
+
+    - name: Set version environment variables
+      shell: pwsh
+      run: |
+        # If workflow_dispatch input provided, prefer it; otherwise use GitVersion outputs
+        $inputVersion = '${{ github.event.inputs.version }}'
+        $isManual = '${{ github.event_name }}' -eq 'workflow_dispatch'
+        if ($isManual -and -not [string]::IsNullOrEmpty($inputVersion)) {
+          $version = $inputVersion
+        } else {
+          $version = '${{ steps.gitversion.outputs.SemVer }}'
+        }
+
+        # Full semver including build metadata
+        $fullVersion = '${{ steps.gitversion.outputs.FullSemVer }}'
+
+        # Assembly version must be 4-part (x.y.z.w)
+        $assemblyVersion = "${{ steps.gitversion.outputs.Major }}.${{ steps.gitversion.outputs.Minor }}.${{ steps.gitversion.outputs.Patch }}.0"
+
+        Write-Host "Using semantic version: $version"
+        Write-Host "Using full version: $fullVersion"
+        Write-Host "Using assembly version: $assemblyVersion"
+
+        echo "VERSION=$version" >> $env:GITHUB_ENV
+        echo "FULLVERSION=$fullVersion" >> $env:GITHUB_ENV
+        echo "ASSEMBLY_VERSION=$assemblyVersion" >> $env:GITHUB_ENV
       
     - name: Build x64
       run: |
@@ -37,6 +72,10 @@ jobs:
           -r win-x64 `
           /p:DebugType=None `
           /p:DebugSymbols=false `
+          /p:Version=$env:VERSION `
+          /p:AssemblyVersion=$env:ASSEMBLY_VERSION `
+          /p:FileVersion=$env:ASSEMBLY_VERSION `
+          /p:AssemblyInformationalVersion=$env:FULLVERSION `
           --self-contained
           
     - name: Build ARM64
@@ -46,14 +85,23 @@ jobs:
           -r win-arm64 `
           /p:DebugType=None `
           /p:DebugSymbols=false `
+          /p:Version=$env:VERSION `
+          /p:AssemblyVersion=$env:ASSEMBLY_VERSION `
+          /p:FileVersion=$env:ASSEMBLY_VERSION `
+          /p:AssemblyInformationalVersion=$env:FULLVERSION `
           --self-contained
           
     - name: Prepare artifacts
+      shell: pwsh
       run: |
         New-Item -ItemType Directory -Path artifacts -Force
-        $version = "${{ github.ref_name }}" -replace '^v', ''
-        if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-          $version = "${{ github.event.inputs.version }}"
+        # Prefer VERSION environment variable (calculated via GitVersion or overridden), fallback to tag or manual input
+        $version = $env:VERSION
+        if (-not $version) {
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $version = "${{ github.event.inputs.version }}"
+          }
         }
         
         # Create ZIP files with exe and README (so Updatum treats as portable app)
