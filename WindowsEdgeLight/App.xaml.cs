@@ -11,7 +11,7 @@ namespace WindowsEdgeLight;
 /// </summary>
 public partial class App : System.Windows.Application
 {
-    internal static readonly UpdatumManager AppUpdater = new("phenixita", "WindowsEdgeLight")
+    internal static readonly UpdatumManager AppUpdater = new("shanselman", "WindowsEdgeLight")
     {
         // Default pattern (win-x64) will match our ZIP assets
         // ZIP files are portable apps with exe and README for proper update handling
