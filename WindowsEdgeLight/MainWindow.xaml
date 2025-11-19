@@ -24,13 +24,13 @@
 
     <Grid x:Name="MainGrid" IsHitTestVisible="False">
         <!--  Edge Light Frame with Rounded Inner and Outer Edges using Path  -->
-        <Path
+            <Path
             x:Name="EdgeLightBorder"
             HorizontalAlignment="Center"
             VerticalAlignment="Center"
             Stretch="None">
             <Path.Fill>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                <LinearGradientBrush x:Name="EdgeLightBrush" StartPoint="0,0" EndPoint="1,1">
                     <GradientStop Offset="0.0" Color="#FFFFFF" />
                     <GradientStop Offset="0.3" Color="#F0F0F0" />
                     <GradientStop Offset="0.5" Color="#FFFFFF" />
@@ -40,6 +40,7 @@
             </Path.Fill>
             <Path.Effect>
                 <DropShadowEffect
+                    x:Name="EdgeLightShadow"
                     BlurRadius="76"
                     Opacity="1"
                     ShadowDepth="0"
