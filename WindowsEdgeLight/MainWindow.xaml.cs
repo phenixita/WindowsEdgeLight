@@ -306,11 +306,26 @@ Version {version}";
         }
 
         var windowPt = PointFromScreen(new System.Windows.Point(screenX, screenY));
-        bool overFrame = frameOuterRect.Value.Contains(windowPt) && !frameInnerRect.Value.Contains(windowPt);
+
+        // Existing frame band detection (outer minus inner)
+        bool inFrameBand = frameOuterRect.Value.Contains(windowPt) && !frameInnerRect.Value.Contains(windowPt);
+
+        // Early detection zone just inside the inner edge: a band with thickness = hole radius (cursor ring radius)
+        double ringDiameter = hoverCursorRing.Width;
+        double holeRadius = ringDiameter / 2; // match ring size
+        var innerProximityRect = new Rect(
+            frameInnerRect.Value.X + holeRadius,
+            frameInnerRect.Value.Y + holeRadius,
+            frameInnerRect.Value.Width - (holeRadius * 2),
+            frameInnerRect.Value.Height - (holeRadius * 2));
+
+        // Near from inside means inside innerRect but within holeRadius of its edge (i.e., not deep inside innerProximityRect)
+        bool nearFromInside = frameInnerRect.Value.Contains(windowPt) && !innerProximityRect.Contains(windowPt);
+
+        bool overFrame = inFrameBand || nearFromInside;
 
         if (overFrame)
         {
-            double ringDiameter = hoverCursorRing.Width;
             Canvas.SetLeft(hoverCursorRing, windowPt.X - ringDiameter / 2);
             Canvas.SetTop(hoverCursorRing, windowPt.Y - ringDiameter / 2);
             if (hoverCursorRing.Visibility != Visibility.Visible)
@@ -321,7 +336,6 @@ Version {version}";
             // Punch a transparent hole under the ring by excluding a circle geometry from the frame
             // Convert window coordinates to geometry local coordinates by subtracting stored offsets
             var localCenter = new System.Windows.Point(windowPt.X - pathOffsetX, windowPt.Y - pathOffsetY);
-            double holeRadius = ringDiameter / 2; // match ring size
             var hole = new EllipseGeometry(localCenter, holeRadius, holeRadius);
             EdgeLightBorder.Data = new CombinedGeometry(GeometryCombineMode.Exclude, baseFrameGeometry, hole);
         }
@@ -377,8 +391,11 @@ Version {version}";
         EdgeLightBorder.Data = frameGeometry;
         pathOffsetX = (ActualWidth - width) / 2.0; // store offsets for local coordinate conversion
         pathOffsetY = (ActualHeight - height) / 2.0;
-        frameOuterRect = new Rect(pathOffsetX, pathOffsetY, width, height);
-        frameInnerRect = new Rect(pathOffsetX + frameThickness, pathOffsetY + frameThickness, width - (frameThickness * 2), height - (frameThickness * 2));
+        // Expand outer and contract inner rects for earlier hover detection based on ring hole radius.
+        double ringDiameter = hoverCursorRing?.Width ?? 0;
+        double holeRadius = ringDiameter / 2.0;
+        frameOuterRect = new Rect(pathOffsetX - holeRadius, pathOffsetY - holeRadius, width + holeRadius * 2, height + holeRadius * 2);
+        frameInnerRect = new Rect(pathOffsetX + frameThickness + holeRadius, pathOffsetY + frameThickness + holeRadius, width - (frameThickness * 2) - holeRadius * 2, height - (frameThickness * 2) - holeRadius * 2);
     }
 
     private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
