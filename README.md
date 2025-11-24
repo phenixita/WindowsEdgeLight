@@ -140,6 +140,8 @@ Requires:
 
 ## Version History
 
+**Note**: Versions are automatically managed using GitVersion based on Git tags.
+
 ### v0.6 - Automatic Update System
 - Integrated Updatum for automatic updates from GitHub Releases
 - Beautiful update dialog with release notes
