@@ -7,6 +7,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using System.Diagnostics;
 
 namespace WindowsEdgeLight;
 
@@ -373,6 +374,8 @@ Version {version}";
                     hoverCursorRing.Visibility = Visibility.Visible;
                 }
 
+                Debug.WriteLine($"[Main] Screen:({screenX},{screenY}) Window:({windowPt.X:F2},{windowPt.Y:F2}) Ring:({Canvas.GetLeft(hoverCursorRing):F2},{Canvas.GetTop(hoverCursorRing):F2})");
+
                 // Punch a transparent hole under the ring by excluding a circle geometry from the frame
                 // Convert window coordinates to geometry local coordinates by subtracting stored offsets
                 var localCenter = new System.Windows.Point(windowPt.X - pathOffsetX, windowPt.Y - pathOffsetY);
@@ -399,8 +402,10 @@ Version {version}";
         }
 
         // --- Additional Windows Logic ---
+        int monitorIdx = 0;
         foreach (var ctx in additionalMonitorWindows)
         {
+            monitorIdx++;
             try
             {
                 var windowPt = ctx.Window.PointFromScreen(new System.Windows.Point(screenX, screenY));
@@ -430,6 +435,8 @@ Version {version}";
                     
                     if (ctx.HoverRing.Visibility != Visibility.Visible)
                         ctx.HoverRing.Visibility = Visibility.Visible;
+
+                    Debug.WriteLine($"[Monitor {monitorIdx}] Screen:({screenX},{screenY}) Window:({windowPt.X:F2},{windowPt.Y:F2}) RingMargin:({ctx.HoverRing.Margin.Left:F2},{ctx.HoverRing.Margin.Top:F2})");
 
                     var localCenter = new System.Windows.Point(windowPt.X - ctx.PathOffsetX, windowPt.Y - ctx.PathOffsetY);
                     var hole = new EllipseGeometry(localCenter, holeRadius, holeRadius);
