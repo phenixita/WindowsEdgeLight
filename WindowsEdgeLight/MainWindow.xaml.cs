@@ -33,6 +33,9 @@ public partial class MainWindow : Window
     
     private NotifyIcon? notifyIcon;
     private ControlWindow? controlWindow;
+    // Tracks whether the control window should be visible (controls initial visibility and toggle state)
+    private bool isControlWindowVisible = true;
+    private ToolStripMenuItem? toggleControlsMenuItem;
 
     private class MonitorWindowContext
     {
@@ -173,10 +176,19 @@ public partial class MainWindow : Window
     contextMenu.Items.Add("🖥️ Switch Monitor", null, (s, e) => MoveToNextMonitor());
     contextMenu.Items.Add("🖥️🖥️ Toggle All Monitors", null, (s, e) => ToggleAllMonitors());
     contextMenu.Items.Add(new ToolStripSeparator());
+    
+    // Add toggle controls menu item - text will be set by UpdateTrayMenuToggleControlsText
+    toggleControlsMenuItem = new ToolStripMenuItem("🎛️ Hide Controls", null, (s, e) => ToggleControlsVisibility());
+    contextMenu.Items.Add(toggleControlsMenuItem);
+    
+    contextMenu.Items.Add(new ToolStripSeparator());
     contextMenu.Items.Add("✖ Exit", null, (s, e) => System.Windows.Application.Current.Shutdown());
         
         notifyIcon.ContextMenuStrip = contextMenu;
         notifyIcon.DoubleClick += (s, e) => ShowHelp();
+        
+        // Set initial menu text based on current state
+        UpdateTrayMenuToggleControlsText();
     }
 
     private void ShowHelp()
@@ -467,7 +479,12 @@ Version {version}";
     {
         controlWindow = new ControlWindow(this);
         RepositionControlWindow();
-        controlWindow.Show();
+        
+        // Only show if controls are supposed to be visible
+        if (isControlWindowVisible)
+        {
+            controlWindow.Show();
+        }
     }
 
     private void CreateFrameGeometry()
@@ -635,6 +652,36 @@ Version {version}";
     public void HandleToggle()
     {
         ToggleLight();
+    }
+
+    public void ToggleControlsVisibility()
+    {
+        isControlWindowVisible = !isControlWindowVisible;
+        
+        // Apply visibility change if control window exists
+        if (controlWindow != null)
+        {
+            if (isControlWindowVisible)
+            {
+                controlWindow.Show();
+            }
+            else
+            {
+                controlWindow.Hide();
+            }
+        }
+        // Note: If controlWindow doesn't exist yet, isControlWindowVisible state
+        // is preserved and will be applied when CreateControlWindow() is called
+        
+        UpdateTrayMenuToggleControlsText();
+    }
+
+    private void UpdateTrayMenuToggleControlsText()
+    {
+        if (toggleControlsMenuItem != null)
+        {
+            toggleControlsMenuItem.Text = isControlWindowVisible ? "🎛️ Hide Controls" : "🎛️ Show Controls";
+        }
     }
 
     public void IncreaseBrightness()

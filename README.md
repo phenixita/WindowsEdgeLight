@@ -12,6 +12,7 @@ A lightweight WPF application that adds a customizable glowing edge light effect
 - **Customizable Brightness**: Adjust opacity with easy-to-use controls
  - **Adjustable Color Temperature**: Shift the edge light from cooler (blue-ish) to warmer (amber) tones
 - **Toggle On/Off**: Quickly enable or disable the edge light effect
+- **Hideable Controls**: Hide the control toolbar for a cleaner look, restore via tray menu
 - **Always On Top**: Stays visible above all other windows
 - **Keyboard Shortcuts**: 
   - `Ctrl+Shift+L` - Toggle light on/off
@@ -77,13 +78,15 @@ The executable will be in `bin\Release\net10.0-windows\win-x64\publish\WindowsEd
 
 1. Launch `WindowsEdgeLight.exe`
 2. The edge light will appear around your primary monitor
-3. Hover over the top-right corner to reveal controls:
+3. Control toolbar appears at the bottom center with these buttons:
    - 🔅 **Decrease Brightness** - Reduces opacity
    - 🔆 **Increase Brightness** - Increases opacity
    - 🌡️ **Cooler Color** - Shifts the glow towards a cooler, blue-ish white
-   - � **Warmer Color** - Shifts the glow towards a warmer, amber tone
-   - �💡 **Toggle Light** - Turn the effect on/off
+   - 🔥 **Warmer Color** - Shifts the glow towards a warmer, amber tone
+   - 💡 **Toggle Light** - Turn the effect on/off
+   - 🖥️ **Switch Monitor** - Move to next monitor (if multiple monitors)
    - ✖ **Exit** - Close the application
+4. Hide the control toolbar for a cleaner look using the tray menu (right-click tray icon → "Hide Controls")
 
 ### Keyboard Shortcuts
 
