@@ -352,55 +352,63 @@ Version {version}";
         // --- Main Window Logic ---
         if (frameOuterRect != null && frameInnerRect != null && hoverCursorRing != null && baseFrameGeometry != null)
         {
-            var windowPt = PointFromScreen(new System.Windows.Point(screenX, screenY));
-
-            // Existing frame band detection (outer minus inner)
-            bool inFrameBand = frameOuterRect.Value.Contains(windowPt) && !frameInnerRect.Value.Contains(windowPt);
-
-            // Early detection zone just inside the inner edge: a band with thickness = hole radius (cursor ring radius)
-            double ringDiameter = hoverCursorRing.Width;
-            double holeRadius = ringDiameter / 2; // match ring size
-            var innerProximityRect = new Rect(
-                frameInnerRect.Value.X + holeRadius,
-                frameInnerRect.Value.Y + holeRadius,
-                frameInnerRect.Value.Width - (holeRadius * 2),
-                frameInnerRect.Value.Height - (holeRadius * 2));
-
-            // Near from inside means inside innerRect but within holeRadius of its edge (i.e., not deep inside innerProximityRect)
-            bool nearFromInside = frameInnerRect.Value.Contains(windowPt) && !innerProximityRect.Contains(windowPt);
-
-            bool overFrame = inFrameBand || nearFromInside;
-
-            if (overFrame)
+            // Manual coordinate calculation for Main Window as well to be safe with mixed DPIs
+            // We positioned the window using _dpiScaleX/Y relative to the screen WorkingArea.
+            var screen = availableMonitors.Length > 0 ? availableMonitors[currentMonitorIndex] : Screen.PrimaryScreen;
+            if (screen != null)
             {
-                Canvas.SetLeft(hoverCursorRing, windowPt.X - ringDiameter / 2);
-                Canvas.SetTop(hoverCursorRing, windowPt.Y - ringDiameter / 2);
-                if (hoverCursorRing.Visibility != Visibility.Visible)
-                {
-                    hoverCursorRing.Visibility = Visibility.Visible;
-                }
+                double relX = (screenX - screen.WorkingArea.X) / _dpiScaleX;
+                double relY = (screenY - screen.WorkingArea.Y) / _dpiScaleY;
+                var windowPt = new System.Windows.Point(relX, relY);
 
-                // Punch a transparent hole under the ring by excluding a circle geometry from the frame
-                // Convert window coordinates to geometry local coordinates by subtracting stored offsets
-                var localCenter = new System.Windows.Point(windowPt.X - pathOffsetX, windowPt.Y - pathOffsetY);
-                var hole = new EllipseGeometry(localCenter, holeRadius, holeRadius);
-                EdgeLightBorder.Data = new CombinedGeometry(GeometryCombineMode.Exclude, baseFrameGeometry, hole);
-            }
-            else
-            {
-                if (hoverCursorRing.Visibility != Visibility.Collapsed)
-                {
-                    hoverCursorRing.Visibility = Visibility.Collapsed;
-                }
+                // Existing frame band detection (outer minus inner)
+                bool inFrameBand = frameOuterRect.Value.Contains(windowPt) && !frameInnerRect.Value.Contains(windowPt);
 
-                if (EdgeLightBorder.Visibility != Visibility.Visible)
+                // Early detection zone just inside the inner edge: a band with thickness = hole radius (cursor ring radius)
+                double ringDiameter = hoverCursorRing.Width;
+                double holeRadius = ringDiameter / 2; // match ring size
+                var innerProximityRect = new Rect(
+                    frameInnerRect.Value.X + holeRadius,
+                    frameInnerRect.Value.Y + holeRadius,
+                    frameInnerRect.Value.Width - (holeRadius * 2),
+                    frameInnerRect.Value.Height - (holeRadius * 2));
+
+                // Near from inside means inside innerRect but within holeRadius of its edge (i.e., not deep inside innerProximityRect)
+                bool nearFromInside = frameInnerRect.Value.Contains(windowPt) && !innerProximityRect.Contains(windowPt);
+
+                bool overFrame = inFrameBand || nearFromInside;
+
+                if (overFrame)
                 {
-                    EdgeLightBorder.Visibility = Visibility.Visible;
+                    Canvas.SetLeft(hoverCursorRing, windowPt.X - ringDiameter / 2);
+                    Canvas.SetTop(hoverCursorRing, windowPt.Y - ringDiameter / 2);
+                    if (hoverCursorRing.Visibility != Visibility.Visible)
+                    {
+                        hoverCursorRing.Visibility = Visibility.Visible;
+                    }
+
+                    // Punch a transparent hole under the ring by excluding a circle geometry from the frame
+                    // Convert window coordinates to geometry local coordinates by subtracting stored offsets
+                    var localCenter = new System.Windows.Point(windowPt.X - pathOffsetX, windowPt.Y - pathOffsetY);
+                    var hole = new EllipseGeometry(localCenter, holeRadius, holeRadius);
+                    EdgeLightBorder.Data = new CombinedGeometry(GeometryCombineMode.Exclude, baseFrameGeometry, hole);
                 }
-                // Restore original geometry (remove hole)
-                if (baseFrameGeometry != null && EdgeLightBorder.Data != baseFrameGeometry)
+                else
                 {
-                    EdgeLightBorder.Data = baseFrameGeometry;
+                    if (hoverCursorRing.Visibility != Visibility.Collapsed)
+                    {
+                        hoverCursorRing.Visibility = Visibility.Collapsed;
+                    }
+
+                    if (EdgeLightBorder.Visibility != Visibility.Visible)
+                    {
+                        EdgeLightBorder.Visibility = Visibility.Visible;
+                    }
+                    // Restore original geometry (remove hole)
+                    if (baseFrameGeometry != null && EdgeLightBorder.Data != baseFrameGeometry)
+                    {
+                        EdgeLightBorder.Data = baseFrameGeometry;
+                    }
                 }
             }
         }
@@ -534,6 +542,26 @@ Version {version}";
         }
         
         return IntPtr.Zero;
+    }
+
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+        
+        _dpiScaleX = newDpi.DpiScaleX;
+        _dpiScaleY = newDpi.DpiScaleY;
+        
+        // Ensure window covers the current monitor correctly with new DPI
+        if (availableMonitors.Length > 0 && currentMonitorIndex < availableMonitors.Length)
+        {
+            var screen = availableMonitors[currentMonitorIndex];
+            var workingArea = screen.WorkingArea;
+            
+            this.Left = workingArea.X / _dpiScaleX;
+            this.Top = workingArea.Y / _dpiScaleY;
+            this.Width = workingArea.Width / _dpiScaleX;
+            this.Height = workingArea.Height / _dpiScaleY;
+        }
     }
 
     protected override void OnClosed(EventArgs e)
@@ -740,15 +768,25 @@ Version {version}";
         currentMonitorIndex = (currentMonitorIndex + 1) % availableMonitors.Length;
         var targetScreen = availableMonitors[currentMonitorIndex];
 
-        // Reposition main window to new monitor
-        SetupWindowForScreen(targetScreen);
+        // Reposition main window to new monitor using physical coordinates to trigger DPI change correctly
+        var hwnd = new WindowInteropHelper(this).Handle;
+        SetWindowPos(hwnd, IntPtr.Zero, 
+            targetScreen.WorkingArea.X, targetScreen.WorkingArea.Y, 
+            targetScreen.WorkingArea.Width, targetScreen.WorkingArea.Height, 
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
         
-        // Recreate the frame geometry for new dimensions
-        CreateFrameGeometry();
+        // Note: SetWindowPos uses physical pixels. Windows will send WM_DPICHANGED if DPI is different.
+        // WPF handles WM_DPICHANGED and calls OnDpiChanged, where we update _dpiScaleX/Y and fix size/pos in DIPs.
         
         // Reposition control window to follow
         RepositionControlWindow();
     }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+    private const uint SWP_NOZORDER = 0x0004;
+    private const uint SWP_NOACTIVATE = 0x0010;
+    private const uint SWP_FRAMECHANGED = 0x0020;
 
     public void ToggleAllMonitors()
     {
