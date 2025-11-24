@@ -11,6 +11,8 @@ namespace WindowsEdgeLight;
 /// </summary>
 public partial class App : System.Windows.Application
 {
+    private static System.Threading.Mutex? _mutex;
+    
     internal static readonly UpdatumManager AppUpdater = new("shanselman", "WindowsEdgeLight")
     {
         // Default pattern (win-x64) will match our ZIP assets
@@ -22,10 +24,32 @@ public partial class App : System.Windows.Application
 
     protected override async void OnStartup(StartupEventArgs e)
     {
+        // Check for single instance using a named mutex
+        const string mutexName = "WindowsEdgeLight_SingleInstance_Mutex";
+        bool createdNew;
+        
+        _mutex = new System.Threading.Mutex(true, mutexName, out createdNew);
+        
+        if (!createdNew)
+        {
+            // Another instance is already running
+            MessageBox.Show("Windows Edge Light is already running.\n\nCheck your system tray for the application icon.",
+                "Already Running", MessageBoxButton.OK, MessageBoxImage.Information);
+            Shutdown();
+            return;
+        }
+        
         base.OnStartup(e);
 
         // Check for updates asynchronously
         _ = CheckForUpdatesAsync();
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        _mutex?.ReleaseMutex();
+        _mutex?.Dispose();
+        base.OnExit(e);
     }
 
     private async Task CheckForUpdatesAsync()
