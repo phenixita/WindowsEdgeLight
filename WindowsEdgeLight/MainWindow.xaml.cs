@@ -23,6 +23,9 @@ public partial class MainWindow : Window
     private const double MinColorTemp = 0.0;
     private const double MaxColorTemp = 1.0;
     
+    // Toggle controls constants
+    private const string ToggleControlsHotkeyText = " (Ctrl+Shift+C)";
+    
     private NotifyIcon? notifyIcon;
     private ControlWindow? controlWindow;
     private bool isControlWindowVisible = true;
@@ -100,8 +103,8 @@ public partial class MainWindow : Window
     contextMenu.Items.Add("K- Warmer Light", null, (s, e) => IncreaseColorTemperature());
     contextMenu.Items.Add(new ToolStripSeparator());
     
-    // Add toggle controls menu item - will be updated dynamically
-    toggleControlsMenuItem = new ToolStripMenuItem("🎛️ Hide Controls (Ctrl+Shift+C)", null, (s, e) => ToggleControlsVisibility());
+    // Add toggle controls menu item - text will be set by UpdateTrayMenuToggleControlsText
+    toggleControlsMenuItem = new ToolStripMenuItem("", null, (s, e) => ToggleControlsVisibility());
     contextMenu.Items.Add(toggleControlsMenuItem);
     
     contextMenu.Items.Add(new ToolStripSeparator());
@@ -109,6 +112,9 @@ public partial class MainWindow : Window
         
         notifyIcon.ContextMenuStrip = contextMenu;
         notifyIcon.DoubleClick += (s, e) => ShowHelp();
+        
+        // Set initial menu text based on current state
+        UpdateTrayMenuToggleControlsText();
     }
 
     private void ShowHelp()
@@ -355,9 +361,8 @@ Version {version}";
     {
         if (toggleControlsMenuItem != null)
         {
-            toggleControlsMenuItem.Text = isControlWindowVisible 
-                ? "🎛️ Hide Controls (Ctrl+Shift+C)" 
-                : "🎛️ Show Controls (Ctrl+Shift+C)";
+            var prefix = isControlWindowVisible ? "🎛️ Hide Controls" : "🎛️ Show Controls";
+            toggleControlsMenuItem.Text = prefix + ToggleControlsHotkeyText;
         }
     }
 
