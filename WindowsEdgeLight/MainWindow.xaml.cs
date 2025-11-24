@@ -29,6 +29,8 @@ public partial class MainWindow : Window
     private double _dpiScaleX = 1.0;
     private double _dpiScaleY = 1.0;
     
+    private bool _isManualMonitorSwitch = false;
+    
     private NotifyIcon? notifyIcon;
     private ControlWindow? controlWindow;
 
@@ -769,19 +771,44 @@ Version {version}";
         // Ensure currentMonitorIndex is accurate before moving
         UpdateCurrentMonitorIndex();
 
-        // Cycle to next monitor
-        currentMonitorIndex = (currentMonitorIndex + 1) % availableMonitors.Length;
-        var targetScreen = availableMonitors[currentMonitorIndex];
+        _isManualMonitorSwitch = true;
+        try
+        {
+            // Cycle to next monitor
+            currentMonitorIndex = (currentMonitorIndex + 1) % availableMonitors.Length;
+            var targetScreen = availableMonitors[currentMonitorIndex];
 
-        // Reposition main window to new monitor using physical coordinates to trigger DPI change correctly
-        var hwnd = new WindowInteropHelper(this).Handle;
-        SetWindowPos(hwnd, IntPtr.Zero, 
-            targetScreen.WorkingArea.X, targetScreen.WorkingArea.Y, 
-            targetScreen.WorkingArea.Width, targetScreen.WorkingArea.Height, 
-            SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-        
-        // Note: SetWindowPos uses physical pixels. Windows will send WM_DPICHANGED if DPI is different.
-        // WPF handles WM_DPICHANGED and calls OnDpiChanged, where we update _dpiScaleX/Y and fix size/pos in DIPs.
+            // Reposition main window to new monitor using physical coordinates to trigger DPI change correctly
+            var hwnd = new WindowInteropHelper(this).Handle;
+            SetWindowPos(hwnd, IntPtr.Zero, 
+                targetScreen.WorkingArea.X, targetScreen.WorkingArea.Y, 
+                targetScreen.WorkingArea.Width, targetScreen.WorkingArea.Height, 
+                SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            
+            // Force a size update if DPI didn't change (SetWindowPos might not trigger OnDpiChanged)
+            // If DPI changed, OnDpiChanged will handle it.
+            // But we can't easily know if OnDpiChanged fired yet.
+            // However, setting properties to the same value is cheap in WPF.
+            // We need to ensure we use the NEW DPI if it changed.
+            // OnDpiChanged updates _dpiScaleX/Y.
+            
+            // If we are on the same thread, OnDpiChanged (via WM_DPICHANGED) should have fired synchronously during SetWindowPos.
+            // So _dpiScaleX/Y should be up to date.
+            
+            double newLeft = targetScreen.WorkingArea.X / _dpiScaleX;
+            double newTop = targetScreen.WorkingArea.Y / _dpiScaleY;
+            double newWidth = targetScreen.WorkingArea.Width / _dpiScaleX;
+            double newHeight = targetScreen.WorkingArea.Height / _dpiScaleY;
+
+            this.Left = newLeft;
+            this.Top = newTop;
+            this.Width = newWidth;
+            this.Height = newHeight;
+        }
+        finally
+        {
+            _isManualMonitorSwitch = false;
+        }
         
         // Reposition control window to follow
         RepositionControlWindow();
@@ -1060,6 +1087,9 @@ Version {version}";
 
     private void UpdateCurrentMonitorIndex()
     {
+        // If we are manually switching, trust the index we set explicitly
+        if (_isManualMonitorSwitch) return;
+
         // Refresh monitor list
         availableMonitors = Screen.AllScreens;
         
