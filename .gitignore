@@ -76,3 +76,8 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+
+# Local signing tools
+sign.exe
+sign-publish-local.ps1
+.store/
