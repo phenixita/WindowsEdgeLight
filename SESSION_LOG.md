@@ -2218,6 +2218,323 @@ git push origin v1.10.1
 
 ---
 
-*This session log now comprehensively documents the entire Windows Edge Light journey from initial concept through production release v1.10.1 with Azure code signing and multi-monitor hole punch support.*
+## Phase 14: Critical Bug Fix - Multi-Monitor DPI Scaling (v1.10.2) - December 3, 2025
+
+**Date**: December 3, 2025 (Evening)
+**Duration**: ~45 minutes
+**Branch**: `fix/window-geometry-bug`
+
+### Bug Report
+
+**Issue**: Edge light appearing 1000+ pixels offset when using "Show on All Monitors" mode with mixed DPI displays
+
+**User Scenario**:
+- Setup: 3 x 4K monitors (left, center primary, right) + 1 monitor below
+- Normal operation: All monitors at 4K resolution with 150% DPI scaling
+- Trigger: Changed rightmost monitor to 1080p for Teams presentations (100% DPI)
+- Result: Edge light on "all monitors" mode appeared spanning across TWO monitors, offset significantly to the left
+
+**Visual Impact**:
+```
+Expected:  [Monitor 3]  [Monitor 2 Primary]  [Monitor 1]
+           [ Light  ]   [   Light     ]      [ Light ]
+
+Actual:    [Monitor 3]  [Monitor 2 Primary]  [Monitor 1]
+           [ Light  ]   [Li|ght   Lig|ht]    [       ]
+                           ^^^^^ overlapping between monitors
+```
+
+### Root Cause Analysis
+
+**Problem Location**: `CreateMonitorWindow()` method (line 917-920)
+
+**Bad Code**:
+```csharp
+// Used primary monitor's DPI for ALL monitors
+window.Left = workingArea.X / _dpiScaleX;    // ❌ Wrong!
+window.Top = workingArea.Y / _dpiScaleY;     // ❌ Wrong!
+window.Width = workingArea.Width / _dpiScaleX;
+window.Height = workingArea.Height / _dpiScaleY;
+```
+
+**Why It Failed**:
+- `_dpiScaleX` and `_dpiScaleY` are cached from the **primary monitor** (Monitor 2)
+- When Monitor 2 is 4K @ 150% DPI: `_dpiScaleX = 1.5`
+- When Monitor 1 is 1080p @ 100% DPI: should use `1.0`
+- But code used `1.5` for Monitor 1, causing position calculation error
+
+**Math Behind the Bug**:
+```
+Monitor 1 position: X=3840, Width=1920
+Wrong calculation: 3840 / 1.5 = 2560 ❌ (appears at center monitor!)
+Right calculation: 3840 / 1.0 = 3840 ✓ (appears at correct position)
+
+Offset: 3840 - 2560 = 1280 pixels to the left!
+```
+
+### Investigation Process
+
+**Step 1**: Analyzed monitor topology with WMI and Windows Forms APIs
+```powershell
+Monitor 1: \\.\DISPLAY1 @ (3840,0) - 1920x1080 (100% DPI after change)
+Monitor 2: \\.\DISPLAY2 @ (0,0) - 2560x1707 PRIMARY (150% DPI)
+Monitor 3: \\.\DISPLAY3 @ (-3840,16) - 2560x1707 (150% DPI)
+Monitor 4: \\.\DISPLAY4 @ (910,2560) - 1536x1024 (100% DPI)
+```
+
+**Step 2**: Identified the DPI calculation issue
+- Primary monitor DPI cached in `_dpiScaleX/_dpiScaleY`
+- All additional monitor windows using same cached value
+- No per-monitor DPI calculation before positioning
+
+**Step 3**: Found existing `Loaded` event handler that tried to fix it
+- Lines 1030-1056: Recalculates DPI after window loads
+- **Problem**: Window already positioned incorrectly by that point
+- Causes flashing and doesn't fully resolve mixed-DPI scenarios
+
+### Solution Implementation
+
+**Added Windows API Support**:
+```csharp
+[DllImport("user32.dll")]
+private static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+[DllImport("shcore.dll")]
+private static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, 
+    out uint dpiX, out uint dpiY);
+
+private const int MDT_EFFECTIVE_DPI = 0;
+private const uint MONITOR_DEFAULTTONEAREST = 2;
+```
+
+**New Helper Method**:
+```csharp
+private (double dpiScaleX, double dpiScaleY) GetDpiForScreen(Screen screen)
+{
+    try
+    {
+        // Get monitor handle for the center of the screen
+        var centerPoint = new POINT
+        {
+            x = screen.Bounds.X + screen.Bounds.Width / 2,
+            y = screen.Bounds.Y + screen.Bounds.Height / 2
+        };
+        
+        IntPtr hMonitor = MonitorFromPoint(centerPoint, MONITOR_DEFAULTTONEAREST);
+        
+        if (hMonitor != IntPtr.Zero)
+        {
+            int result = GetDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, 
+                out uint dpiX, out uint dpiY);
+            if (result == 0) // S_OK
+            {
+                // Convert from DPI to scale factor (96 DPI = 100% = 1.0)
+                return (dpiX / 96.0, dpiY / 96.0);
+            }
+        }
+    }
+    catch
+    {
+        // Fall through to default
+    }
+    
+    // Fallback: return 1.0 (100% scaling)
+    return (1.0, 1.0);
+}
+```
+
+**Updated CreateMonitorWindow()**:
+```csharp
+// OLD - Used wrong DPI
+window.Left = workingArea.X / _dpiScaleX;
+
+// NEW - Uses correct per-monitor DPI
+var (screenDpiX, screenDpiY) = GetDpiForScreen(screen);
+window.Left = workingArea.X / screenDpiX;
+window.Top = workingArea.Y / screenDpiY;
+window.Width = workingArea.Width / screenDpiX;
+window.Height = workingArea.Height / screenDpiY;
+```
+
+**Optimized MonitorWindowContext Initialization**:
+```csharp
+// OLD - Always used primary monitor's DPI
+DpiScaleX = _dpiScaleX,
+DpiScaleY = _dpiScaleY
+
+// NEW - Uses calculated per-monitor DPI
+DpiScaleX = screenDpiX,
+DpiScaleY = screenDpiY
+```
+
+**Improved Loaded Event Handler**:
+```csharp
+// Only reposition if DPI changed significantly from our initial calculation
+if (Math.Abs(dpiX - ctx.DpiScaleX) > 0.01 || 
+    Math.Abs(dpiY - ctx.DpiScaleY) > 0.01)
+{
+    // Recalculate with WPF-reported DPI
+    ctx.DpiScaleX = dpiX;
+    ctx.DpiScaleY = dpiY;
+    // ... reposition window
+}
+```
+
+**Bonus Fix**: Removed duplicate POINT struct definition (was defined twice)
+
+### Changes Summary
+
+**Files Modified**: 1 file
+- `WindowsEdgeLight/MainWindow.xaml.cs`: +72 lines, -24 lines
+
+**Key Changes**:
+1. ✅ Added `MonitorFromPoint` P/Invoke (user32.dll)
+2. ✅ Added `GetDpiForMonitor` P/Invoke (shcore.dll)
+3. ✅ Created `GetDpiForScreen()` helper method
+4. ✅ Updated `CreateMonitorWindow()` to use per-monitor DPI
+5. ✅ Optimized `MonitorWindowContext` initialization
+6. ✅ Improved `Loaded` event to only reposition if needed
+7. ✅ Removed duplicate POINT struct definition
+
+**Lines of Code**: Net +48 lines
+
+### Testing & Verification
+
+**Build Status**: ✅ Success
+```
+Build succeeded with 4 warnings (pre-existing: WFO0003, IL3000)
+0 Errors
+```
+
+**Runtime Testing**:
+```
+Setup: 4 monitors with mixed DPI
+- Monitor 1: 1920x1080 @ 100% (1080p presentation mode)
+- Monitor 2: 2560x1707 @ 150% (4K primary)
+- Monitor 3: 2560x1707 @ 150% (4K left)
+- Monitor 4: 1536x1024 @ 100% (bottom)
+
+Action: Enable "Show on All Monitors"
+Result: ✅ All edge lights positioned correctly on their respective monitors
+        ✅ No offset or overlap between monitors
+        ✅ No flashing or repositioning after window loads
+```
+
+**User Confirmation**: "that fixed it very nice job"
+
+### Technical Details
+
+**DPI Calculation Accuracy**:
+- Uses `MDT_EFFECTIVE_DPI` - matches what Windows uses for scaling
+- Returns actual DPI per monitor (96, 120, 144, 192, etc.)
+- Converts to scale factor: `dpi / 96.0` (e.g., 144 / 96 = 1.5 = 150%)
+
+**Coordinate Transformation**:
+```
+Physical pixels (from Screen.Bounds) → WPF DIPs (Device Independent Pixels)
+Formula: physicalPixels / dpiScale = DIPs
+
+Example with Monitor 1:
+  Physical: X=3840, DPI=96 (1.0 scale)
+  WPF DIPs: 3840 / 1.0 = 3840
+
+Example with Monitor 2:  
+  Physical: X=0, DPI=144 (1.5 scale)
+  WPF DIPs: 0 / 1.5 = 0
+```
+
+**Performance Impact**:
+- Added one Win32 API call per monitor window creation
+- `GetDpiForMonitor` is fast (~microseconds)
+- Eliminates redundant repositioning in `Loaded` event
+- Net performance improvement due to less repositioning
+
+### Why This Bug Existed
+
+**Historical Context**:
+1. Original code (v0.6) only supported single monitor
+2. v1.8-1.9 added multi-monitor support
+3. v1.10.0 added "all monitors" mode
+4. Initial implementation assumed all monitors had same DPI
+5. Windows increasingly supports mixed-DPI setups (common with laptops + external displays)
+
+**Common Misconception**:
+- Developers often assume one DPI scale per system
+- Reality: Windows supports **per-monitor DPI** since Windows 8.1
+- Each monitor can have different scaling independently
+
+### Impact Assessment
+
+**Severity**: High
+- Broke core "all monitors" feature for mixed-DPI setups
+- Visual bug (edge lights in wrong position)
+- Functional impact (lights overlapping, not clickable in right place)
+
+**Scope**: 
+- Affects users with mixed DPI monitor setups
+- Common scenario: Laptop @ 150% + External 1080p @ 100%
+- Also affects: 4K + 1080p combinations, triple monitor setups
+
+**Frequency**:
+- Issue occurs whenever resolution/DPI changes while app running
+- Common when switching monitor modes for presentations
+- Reproducible 100% of the time with mixed DPI
+
+### Commit Details
+
+**Branch**: `fix/window-geometry-bug`
+**Commit**: `17b3b4d`
+**Message**: "Fix multi-monitor geometry bug with per-monitor DPI scaling"
+
+**Git Stats**:
+```
+ 1 file changed, 72 insertions(+), 24 deletions(-)
+```
+
+### Release Notes (v1.10.2)
+
+**Version**: 1.10.2
+**Release Date**: December 3, 2025
+**Type**: Bug fix release
+
+**Fixed**:
+- 🐛 Multi-monitor positioning bug with mixed DPI displays
+- Edge lights now correctly positioned on all monitors regardless of DPI differences
+- Eliminated 1000+ pixel offset when switching monitor resolutions
+- Removed window flashing during all-monitors mode activation
+
+**Technical**:
+- Added per-monitor DPI calculation using Windows GetDpiForMonitor API
+- Optimized window positioning to calculate correct DPI before creating windows
+- Reduced redundant repositioning in window Loaded events
+
+**Compatibility**:
+- No breaking changes
+- Seamless upgrade from v1.10.1
+- All existing features maintained
+
+---
+
+## Final Status (December 3, 2025 - Evening)
+
+**Current Version**: v1.10.2 (Latest/Production)
+**Status**: Stable, critical bug fixed
+**Build**: Automated, signed, trusted
+**Testing**: Verified on 4-monitor mixed-DPI setup
+**User Impact**: Positive - "that fixed it very nice job"
+
+**Project Maturity**: 🟢 Production/Stable
+
+---
+
+**Total Project Timeline**: November 14 - December 3, 2025 (19 days)
+**Total Releases**: 19 versions (v0.1 through v1.10.2)
+**Lines of Code**: ~3,750 (code + docs + tests)
+**Community PRs**: 8 merged
+**Status**: 🚀 Production Ready
+
+---
+
+*This session log now comprehensively documents the entire Windows Edge Light journey from initial concept through production release v1.10.2 with critical multi-monitor DPI bug fix.*
 
 
