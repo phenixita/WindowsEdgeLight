@@ -7,23 +7,15 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using WindowsEdgeLight.ViewModels;
+using WindowsEdgeLight.Models;
 
 namespace WindowsEdgeLight;
 
 public partial class MainWindow : Window
 {
-    private bool isLightOn = true;
-    private double currentOpacity = 1.0;  // Full brightness by default
-    private const double OpacityStep = 0.15;
-    private const double MinOpacity = 0.2;
-    private const double MaxOpacity = 1.0;
-
-    // Color temperature ("cool" blue-ish to "warm" amber-ish)
-    // We'll model this as a simple 0-1 slider where 0 = coolest, 1 = warmest.
-    private double _colorTemperature = 0.5;
-    private const double ColorTempStep = 0.1;
-    private const double MinColorTemp = 0.0;
-    private const double MaxColorTemp = 1.0;
+    // ViewModel for business logic
+    private readonly MainViewModel _viewModel;
 
     // DPI Scale
     private double _dpiScaleX = 1.0;
@@ -33,29 +25,11 @@ public partial class MainWindow : Window
     
     private NotifyIcon? notifyIcon;
     private ControlWindow? controlWindow;
-    // Tracks whether the control window should be visible (controls initial visibility and toggle state)
-    private bool isControlWindowVisible = true;
     private ToolStripMenuItem? toggleControlsMenuItem;
-
-    private class MonitorWindowContext
-    {
-        public Window Window { get; set; } = null!;
-        public Screen Screen { get; set; } = null!;
-        public System.Windows.Shapes.Path BorderPath { get; set; } = null!;
-        public Ellipse HoverRing { get; set; } = null!;
-        public Geometry BaseGeometry { get; set; } = null!;
-        public Rect FrameOuterRect { get; set; }
-        public Rect FrameInnerRect { get; set; }
-        public double PathOffsetX { get; set; }
-        public double PathOffsetY { get; set; }
-        public double DpiScaleX { get; set; } = 1.0;
-        public double DpiScaleY { get; set; } = 1.0;
-    }
 
     // Monitor management
     private int currentMonitorIndex = 0;
     private Screen[] availableMonitors = Array.Empty<Screen>();
-    private bool showOnAllMonitors = false;
     private List<MonitorWindowContext> additionalMonitorWindows = new List<MonitorWindowContext>();
 
     // Global hotkey IDs
@@ -140,8 +114,33 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        
+        // Initialize ViewModel
+        _viewModel = new MainViewModel();
+        DataContext = _viewModel;
+        
+        // Subscribe to ViewModel events
+        _viewModel.OnMoveToNextMonitor += MoveToNextMonitor;
+        _viewModel.OnToggleAllMonitors += ToggleAllMonitors;
+        _viewModel.OnShowHelp += ShowHelp;
+        _viewModel.OnExit += () => System.Windows.Application.Current.Shutdown();
+        
+        // Subscribe to property changes for updating additional windows
+        _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+        
         hoverCursorRing = FindName("HoverCursorRing") as Ellipse;
         SetupNotifyIcon();
+    }
+
+    private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        // Update additional monitor windows when properties change
+        if (e.PropertyName == nameof(MainViewModel.IsLightOn) ||
+            e.PropertyName == nameof(MainViewModel.CurrentOpacity) ||
+            e.PropertyName == nameof(MainViewModel.ColorTemperature))
+        {
+            UpdateAdditionalMonitorWindows();
+        }
     }
 
     private void SetupNotifyIcon()
@@ -173,25 +172,25 @@ public partial class MainWindow : Window
         notifyIcon.Visible = true;
         
     var contextMenu = new ContextMenuStrip();
-    contextMenu.Items.Add("📋 Keyboard Shortcuts", null, (s, e) => ShowHelp());
+    contextMenu.Items.Add("📋 Keyboard Shortcuts", null, (s, e) => _viewModel.ShowHelpCommand.Execute(null));
     contextMenu.Items.Add(new ToolStripSeparator());
-    contextMenu.Items.Add("💡 Toggle Light (Ctrl+Shift+L)", null, (s, e) => ToggleLight());
-    contextMenu.Items.Add("🔆 Brightness Up (Ctrl+Shift+↑)", null, (s, e) => IncreaseBrightness());
-    contextMenu.Items.Add("🔅 Brightness Down (Ctrl+Shift+↓)", null, (s, e) => DecreaseBrightness());
+    contextMenu.Items.Add("💡 Toggle Light (Ctrl+Shift+L)", null, (s, e) => _viewModel.ToggleLightCommand.Execute(null));
+    contextMenu.Items.Add("🔆 Brightness Up (Ctrl+Shift+↑)", null, (s, e) => _viewModel.IncreaseBrightnessCommand.Execute(null));
+    contextMenu.Items.Add("🔅 Brightness Down (Ctrl+Shift+↓)", null, (s, e) => _viewModel.DecreaseBrightnessCommand.Execute(null));
     contextMenu.Items.Add(new ToolStripSeparator());
-    contextMenu.Items.Add("🔥 K- Warmer Light", null, (s, e) => IncreaseColorTemperature());
-    contextMenu.Items.Add("❄️ K+ Cooler Light", null, (s, e) => DecreaseColorTemperature());
+    contextMenu.Items.Add("🔥 K- Warmer Light", null, (s, e) => _viewModel.IncreaseColorTemperatureCommand.Execute(null));
+    contextMenu.Items.Add("❄️ K+ Cooler Light", null, (s, e) => _viewModel.DecreaseColorTemperatureCommand.Execute(null));
     contextMenu.Items.Add(new ToolStripSeparator());
-    contextMenu.Items.Add("🖥️ Switch Monitor", null, (s, e) => MoveToNextMonitor());
-    contextMenu.Items.Add("🖥️🖥️ Toggle All Monitors", null, (s, e) => ToggleAllMonitors());
+    contextMenu.Items.Add("🖥️ Switch Monitor", null, (s, e) => _viewModel.MoveToNextMonitorCommand.Execute(null));
+    contextMenu.Items.Add("🖥️🖥️ Toggle All Monitors", null, (s, e) => _viewModel.ToggleAllMonitorsCommand.Execute(null));
     contextMenu.Items.Add(new ToolStripSeparator());
     
     // Add toggle controls menu item - text will be set by UpdateTrayMenuToggleControlsText
-    toggleControlsMenuItem = new ToolStripMenuItem("🎛️ Hide Controls", null, (s, e) => ToggleControlsVisibility());
+    toggleControlsMenuItem = new ToolStripMenuItem("🎛️ Hide Controls", null, (s, e) => _viewModel.ToggleControlsVisibilityCommand.Execute(null));
     contextMenu.Items.Add(toggleControlsMenuItem);
     
     contextMenu.Items.Add(new ToolStripSeparator());
-    contextMenu.Items.Add("✖ Exit", null, (s, e) => System.Windows.Application.Current.Shutdown());
+    contextMenu.Items.Add("✖ Exit", null, (s, e) => _viewModel.ExitCommand.Execute(null));
         
         notifyIcon.ContextMenuStrip = contextMenu;
         notifyIcon.DoubleClick += (s, e) => ShowHelp();
@@ -341,7 +340,7 @@ Version {version}";
 
     private void HandleMouseMove(int screenX, int screenY)
     {
-        if (!isLightOn)
+        if (!_viewModel.IsLightOn)
         {
             if (EdgeLightBorder.Visibility != Visibility.Collapsed)
             {
@@ -489,8 +488,24 @@ Version {version}";
         controlWindow = new ControlWindow(this);
         RepositionControlWindow();
         
+        // Subscribe to ViewModel property changes for control window visibility
+        _viewModel.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.IsControlWindowVisible))
+            {
+                if (controlWindow != null)
+                {
+                    if (_viewModel.IsControlWindowVisible)
+                        controlWindow.Show();
+                    else
+                        controlWindow.Hide();
+                }
+                UpdateTrayMenuToggleControlsText();
+            }
+        };
+        
         // Only show if controls are supposed to be visible
-        if (isControlWindowVisible)
+        if (_viewModel.IsControlWindowVisible)
         {
             controlWindow.Show();
         }
@@ -540,15 +555,15 @@ Version {version}";
             switch (hotkeyId)
             {
                 case HOTKEY_TOGGLE:
-                    ToggleLight();
+                    _viewModel.ToggleLightCommand.Execute(null);
                     handled = true;
                     break;
                 case HOTKEY_BRIGHTNESS_UP:
-                    IncreaseBrightness();
+                    _viewModel.IncreaseBrightnessCommand.Execute(null);
                     handled = true;
                     break;
                 case HOTKEY_BRIGHTNESS_DOWN:
-                    DecreaseBrightness();
+                    _viewModel.DecreaseBrightnessCommand.Execute(null);
                     handled = true;
                     break;
             }
@@ -620,7 +635,7 @@ Version {version}";
             (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && 
             (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
         {
-            ToggleLight();
+            _viewModel.ToggleLightCommand.Execute(null);
         }
         else if (e.Key == Key.Escape)
         {
@@ -630,85 +645,30 @@ Version {version}";
 
     private void Toggle_Click(object sender, RoutedEventArgs e)
     {
-        ToggleLight();
-    }
-
-    private void ToggleLight()
-    {
-        isLightOn = !isLightOn;
-        if (isLightOn)
-        {
-            EdgeLightBorder.Visibility = Visibility.Visible;
-            // Restore base geometry on toggle if needed
-            if (baseFrameGeometry != null)
-            {
-                EdgeLightBorder.Data = baseFrameGeometry;
-            }
-        }
-        else
-        {
-            EdgeLightBorder.Visibility = Visibility.Collapsed;
-            if (hoverCursorRing != null)
-            {
-                hoverCursorRing.Visibility = Visibility.Collapsed;
-            }
-        }
-        
-        // Update all additional monitor windows
-        UpdateAdditionalMonitorWindows();
+        _viewModel.ToggleLightCommand.Execute(null);
     }
 
     public void HandleToggle()
     {
-        ToggleLight();
-    }
-
-    public void ToggleControlsVisibility()
-    {
-        isControlWindowVisible = !isControlWindowVisible;
-        
-        // Apply visibility change if control window exists
-        if (controlWindow != null)
-        {
-            if (isControlWindowVisible)
-            {
-                controlWindow.Show();
-            }
-            else
-            {
-                controlWindow.Hide();
-            }
-        }
-        // Note: If controlWindow doesn't exist yet, isControlWindowVisible state
-        // is preserved and will be applied when CreateControlWindow() is called
-        
-        UpdateTrayMenuToggleControlsText();
+        _viewModel.ToggleLightCommand.Execute(null);
     }
 
     private void UpdateTrayMenuToggleControlsText()
     {
         if (toggleControlsMenuItem != null)
         {
-            toggleControlsMenuItem.Text = isControlWindowVisible ? "🎛️ Hide Controls" : "🎛️ Show Controls";
+            toggleControlsMenuItem.Text = _viewModel.IsControlWindowVisible ? "🎛️ Hide Controls" : "🎛️ Show Controls";
         }
     }
 
     public void IncreaseBrightness()
     {
-        currentOpacity = Math.Min(MaxOpacity, currentOpacity + OpacityStep);
-        EdgeLightBorder.Opacity = currentOpacity;
-        
-        // Update all additional monitor windows
-        UpdateAdditionalMonitorWindows();
+        _viewModel.IncreaseBrightnessCommand.Execute(null);
     }
 
     public void DecreaseBrightness()
     {
-        currentOpacity = Math.Max(MinOpacity, currentOpacity - OpacityStep);
-        EdgeLightBorder.Opacity = currentOpacity;
-        
-        // Update all additional monitor windows
-        UpdateAdditionalMonitorWindows();
+        _viewModel.DecreaseBrightnessCommand.Execute(null);
     }
 
     private void UpdateAdditionalMonitorWindows()
@@ -716,22 +676,16 @@ Version {version}";
         foreach (var ctx in additionalMonitorWindows)
         {
             var path = ctx.BorderPath;
-            path.Opacity = currentOpacity;
-            path.Visibility = isLightOn ? Visibility.Visible : Visibility.Collapsed;
+            path.Opacity = _viewModel.CurrentOpacity;
+            path.Visibility = _viewModel.IsLightOn ? Visibility.Visible : Visibility.Collapsed;
             
             // Update color temperature
             if (path.Fill is LinearGradientBrush brush && brush.GradientStops.Count >= 3)
             {
-                var cool = System.Windows.Media.Color.FromRgb(220, 235, 255);
-                var warm = System.Windows.Media.Color.FromRgb(255, 220, 180);
-                
-                System.Windows.Media.Color Lerp(System.Windows.Media.Color a, System.Windows.Media.Color b, double t)
-                {
-                    byte LerpByte(byte x, byte y, double tt) => (byte)(x + (y - x) * tt);
-                    return System.Windows.Media.Color.FromArgb(255, LerpByte(a.R, b.R, t), LerpByte(a.G, b.G, t), LerpByte(a.B, b.B, t));
-                }
-                
-                var midColor = Lerp(cool, warm, _colorTemperature);
+                var midColor = System.Windows.Media.Color.FromRgb(
+                    _viewModel.ColorTemperatureR,
+                    _viewModel.ColorTemperatureG,
+                    _viewModel.ColorTemperatureB);
                 
                 foreach (var stop in brush.GradientStops)
                 {
@@ -746,59 +700,18 @@ Version {version}";
 
     public void IncreaseColorTemperature()
     {
-        SetColorTemperature(_colorTemperature + ColorTempStep);
+        _viewModel.IncreaseColorTemperatureCommand.Execute(null);
     }
 
     public void DecreaseColorTemperature()
     {
-        SetColorTemperature(_colorTemperature - ColorTempStep);
+        _viewModel.DecreaseColorTemperatureCommand.Execute(null);
     }
 
-    public void SetColorTemperature(double value)
-    {
-        _colorTemperature = Math.Max(MinColorTemp, Math.Min(MaxColorTemp, value));
-
-        // Map 0-1 slider to a simple cool-to-warm gradient.
-        // We'll bias the inner gradient stops from blueish-white (cool) to amber (warm).
-        // NOTE: This assumes the brush defined in XAML is still a LinearGradientBrush.
-        if (EdgeLightBorder.Fill is LinearGradientBrush brush && brush.GradientStops.Count >= 3)
-        {
-            // Cool: RGB ~ (220, 235, 255), Warm: RGB ~ (255, 220, 180)
-            System.Windows.Media.Color Lerp(System.Windows.Media.Color a, System.Windows.Media.Color b, double t)
-            {
-                byte LerpByte(byte x, byte y, double tt) => (byte)(x + (y - x) * tt);
-
-                return System.Windows.Media.Color.FromArgb(
-                    255,
-                    LerpByte(a.R, b.R, t),
-                    LerpByte(a.G, b.G, t),
-                    LerpByte(a.B, b.B, t));
-            }
-
-            var cool = System.Windows.Media.Color.FromRgb(220, 235, 255);
-            var warm = System.Windows.Media.Color.FromRgb(255, 220, 180);
-
-            var midColor = Lerp(cool, warm, _colorTemperature);
-
-            // Update a couple of inner stops to shift perceived temperature
-            // Keep outer rim relatively neutral for consistent edge.
-            foreach (var stop in brush.GradientStops)
-            {
-                if (stop.Offset is > 0.2 and < 0.8)
-                {
-                    stop.Color = midColor;
-                }
-            }
-        }
-        
-        // Update all additional monitor windows
-        UpdateAdditionalMonitorWindows();
-    }
-
-    public void MoveToNextMonitor()
+    private void MoveToNextMonitor()
     {
         // If in all monitors mode, do nothing
-        if (showOnAllMonitors) return;
+        if (_viewModel.ShowOnAllMonitors) return;
         
         // Refresh monitor list in case of hot-plug/unplug
         availableMonitors = Screen.AllScreens;
@@ -861,11 +774,11 @@ Version {version}";
     private const uint SWP_NOACTIVATE = 0x0010;
     private const uint SWP_FRAMECHANGED = 0x0020;
 
-    public void ToggleAllMonitors()
+    private void ToggleAllMonitors()
     {
-        showOnAllMonitors = !showOnAllMonitors;
+        _viewModel.ShowOnAllMonitors = !_viewModel.ShowOnAllMonitors;
         
-        if (showOnAllMonitors)
+        if (_viewModel.ShowOnAllMonitors)
         {
             ShowOnAllMonitors();
         }
@@ -938,8 +851,8 @@ Version {version}";
             HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
             VerticalAlignment = System.Windows.VerticalAlignment.Center,
             Stretch = System.Windows.Media.Stretch.None,
-            Opacity = currentOpacity,
-            Visibility = isLightOn ? Visibility.Visible : Visibility.Collapsed
+            Opacity = _viewModel.CurrentOpacity,
+            Visibility = _viewModel.IsLightOn ? Visibility.Visible : Visibility.Collapsed
         };
 
         // Create gradient brush
@@ -1090,7 +1003,7 @@ Version {version}";
 
     public bool IsShowingOnAllMonitors()
     {
-        return showOnAllMonitors;
+        return _viewModel.ShowOnAllMonitors;
     }
 
     private void RepositionControlWindow()
